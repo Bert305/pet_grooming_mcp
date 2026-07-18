@@ -91,31 +91,68 @@ Set `DATABASE_URL` to your Supabase Postgres connection string
 If you don't have a database yet, run [`sql/schema.sql`](sql/schema.sql) in the
 Supabase SQL editor to create the schema.
 
-### 3. Run
+## How to run
+
+An MCP server isn't a web app — there's no URL to open. It talks JSON-RPC over
+stdin/stdout and is normally launched by an MCP client (Claude Desktop). There
+are three ways to run it, depending on what you want to do.
+
+### A. Through Claude Desktop (the real use case)
+
+Configure it once (see [Connect to Claude Desktop](#connect-to-claude-desktop)
+below), then fully quit and restart Claude Desktop. Claude launches the server
+for you — you don't run anything manually. Check **Settings → Developer**; the
+server should show as connected.
+
+### B. Manually in a terminal (to see it start / debug)
 
 ```bash
-pet-grooming-mcp
-# or
-python -m pet_grooming_mcp
+uv run mcp_server.py
 ```
 
-### 4. Verify with the MCP Inspector (optional)
+This is the exact command Claude Desktop uses. It reads your `.env`, connects to
+Supabase, then **waits silently** for input on stdin — that is correct behaviour
+for an MCP server. If nothing errors, it's working. Press `Ctrl+C` to stop.
+
+> On Windows, launch with `uv run` (or the project's venv) rather than a bare
+> `python mcp_server.py`, so the server's async database driver uses a compatible
+> event loop.
+
+### C. Interactive testing with the MCP Inspector (recommended)
+
+A browser UI to click each tool and see live results from your database:
 
 ```bash
-npx @modelcontextprotocol/inspector pet-grooming-mcp
+npx @modelcontextprotocol/inspector uv run mcp_server.py
 ```
+
+### Run the tests (no database required)
+
+```bash
+uv run pytest
+```
+
+The tests use a `FakeDatabase` that returns canned rows, so they verify each
+tool's output shape and JSON serialization without a live Postgres instance.
 
 ## Connect to Claude Desktop
 
-Add the server to your Claude Desktop config
+Edit your Claude Desktop config
 (`%APPDATA%\Claude\claude_desktop_config.json` on Windows,
-`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS) and
+add the server. Point `--directory` at this project folder:
 
 ```json
 {
   "mcpServers": {
     "pet-grooming-analytics": {
-      "command": "pet-grooming-mcp",
+      "command": "uv",
+      "args": [
+        "--directory",
+        "C:\\dev\\pet_grooming_mcp\\pet_grooming_mcp",
+        "run",
+        "mcp_server.py"
+      ],
       "env": {
         "DATABASE_URL": "postgresql://postgres.your-ref:your-password@aws-0-region.pooler.supabase.com:5432/postgres?sslmode=require"
       }
@@ -124,11 +161,15 @@ Add the server to your Claude Desktop config
 }
 ```
 
-If `pet-grooming-mcp` isn't on your PATH, use the absolute path to the console
-script (or `"command": "python", "args": ["-m", "pet_grooming_mcp"]`), and set a
-`"cwd"` so the virtual environment resolves.
+Notes:
 
-Restart Claude Desktop, then try:
+- Using `uv --directory ... run mcp_server.py` avoids PATH problems — you don't
+  need the project's virtual environment to be active or on `PATH`.
+- If your password contains a `%`, percent-encode it as `%25` in the URL (other
+  reserved characters likewise, e.g. `@` → `%40`).
+- The `DATABASE_URL` in `env` can be omitted if it is already set in `.env`.
+
+Then fully quit and restart Claude Desktop and try:
 
 - "Give me a business overview."
 - "Find all dogs owned by customers named Johnson."
@@ -136,18 +177,10 @@ Restart Claude Desktop, then try:
 - "Which services have been used most during the last 90 days?"
 - "What was our revenue by month this year?"
 
-## Development
-
-```bash
-pytest            # run the offline test suite (no database required)
-```
-
-The tests use a `FakeDatabase` that returns canned rows, so they verify each
-tool's output shape and JSON serialization without a live Postgres instance.
-
 ## Project layout
 
 ```
+mcp_server.py      # entry point: `uv run mcp_server.py`
 src/pet_grooming_mcp/
   server.py        # FastMCP server: registers tools, manages the pool lifespan
   config.py        # environment configuration
