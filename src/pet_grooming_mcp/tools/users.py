@@ -44,9 +44,9 @@ async def search_users(
             u.created_at,
             (SELECT count(*) FROM pets p WHERE p.user_id = u.id) AS pet_count
         FROM users u
-        WHERE (%(name)s IS NULL OR u.full_name ILIKE %(name)s)
-          AND (%(email)s IS NULL OR u.email ILIKE %(email)s)
-          AND (%(phone)s IS NULL OR u.phone ILIKE %(phone)s)
+        WHERE (%(name)s::text IS NULL OR u.full_name ILIKE %(name)s)
+          AND (%(email)s::text IS NULL OR u.email ILIKE %(email)s)
+          AND (%(phone)s::text IS NULL OR u.phone ILIKE %(phone)s)
           AND (NOT %(active_only)s OR u.is_active)
         ORDER BY u.full_name
         LIMIT %(limit)s

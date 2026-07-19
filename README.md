@@ -177,6 +177,53 @@ Then fully quit and restart Claude Desktop and try:
 - "Which services have been used most during the last 90 days?"
 - "What was our revenue by month this year?"
 
+## Web dashboard (optional)
+
+Alongside the MCP server, this repo ships a browser dashboard so you can *see*
+the analytics: a FastAPI backend (`src/pet_grooming_mcp/web/`) that reuses the
+exact same read-only `Database` and query tools, and a Next.js frontend
+(`../frontend/`). Nothing about the security model changes — the HTTP layer
+inherits the `READ ONLY` connection pool and bounded `statement_timeout`, and
+the ad-hoc SQL paths reject anything that isn't a single `SELECT`.
+
+### Tabs
+
+- **Statistics Snapshot** — headline KPIs, revenue trend, appointments by
+  status, pets by species, top customers. Export the whole view as **JPEG** or
+  the metrics as **CSV**.
+- **Data Quality Snapshot** — completeness/integrity checks with a 0-100 health
+  score. Export as **JPEG** or **CSV**.
+- **Analyze (Prompt)** — ask a question in plain English; Claude
+  (`claude-opus-4-8`) writes a read-only SQL query, the backend runs it, and the
+  result is charted alongside the generated SQL.
+- **SQL Query Maker** — write your own `SELECT`, run it, browse the schema, chart
+  the result, and export to CSV.
+
+### 1. Backend
+
+```bash
+uv pip install -e ".[web]"      # Think of this like a npm install for a json package you run once to activate the dependencies --> adds fastapi, uvicorn, anthropic
+# Set ANTHROPIC_API_KEY in .env to enable the "Analyze (Prompt)" tab.
+uv run pet-grooming-web         # serves http://127.0.0.1:8000
+```
+
+> **Windows:** launch via `pet-grooming-web` (or
+> `python -m pet_grooming_mcp.web.app`), **not** the bare `uvicorn` CLI — the
+> async Postgres driver needs the selector event loop, which the entry point
+> sets up. Host/port/CORS are configurable via `WEB_HOST`, `WEB_PORT`,
+> `WEB_CORS_ORIGINS`.
+
+### 2. Frontend
+
+```bash
+cd ../frontend
+npm install
+npm run dev                     # serves http://localhost:3000
+```
+
+Point the UI at the backend with `NEXT_PUBLIC_API_BASE` (defaults to
+`http://127.0.0.1:8000`); see `frontend/.env.local.example`.
+
 ## Project layout
 
 ```

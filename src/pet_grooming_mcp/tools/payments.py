@@ -29,8 +29,8 @@ async def get_payment_statistics(
     }
     where = """
         FROM payments p
-        WHERE (%(start)s IS NULL OR p.paid_at >= %(start)s::timestamptz)
-          AND (%(end)s IS NULL OR p.paid_at < %(end)s::timestamptz)
+        WHERE (%(start)s::timestamptz IS NULL OR p.paid_at >= %(start)s::timestamptz)
+          AND (%(end)s::timestamptz IS NULL OR p.paid_at < %(end)s::timestamptz)
     """
 
     summary = await db.fetchrow(
@@ -100,8 +100,8 @@ async def get_revenue_summary(
         FROM payments p
         WHERE lower(p.status::text) = ANY(%(successful)s)
           AND p.paid_at IS NOT NULL
-          AND (%(start)s IS NULL OR p.paid_at >= %(start)s::timestamptz)
-          AND (%(end)s IS NULL OR p.paid_at < %(end)s::timestamptz)
+          AND (%(start)s::timestamptz IS NULL OR p.paid_at >= %(start)s::timestamptz)
+          AND (%(end)s::timestamptz IS NULL OR p.paid_at < %(end)s::timestamptz)
         GROUP BY date_trunc(%(unit)s, p.paid_at)
         ORDER BY period
         """,

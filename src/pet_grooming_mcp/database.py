@@ -83,6 +83,34 @@ class Database:
         rows = await self.fetch(query, params)
         return rows[0] if rows else None
 
+    async def fetch_capped(
+        self,
+        query: str,
+        params: Mapping[str, Any] | Sequence[Any] | None = None,
+        max_rows: int = 1000,
+    ) -> tuple[list[str], list[dict[str, Any]], bool]:
+        """Run a query and return at most ``max_rows`` rows.
+
+        Returns ``(columns, rows, truncated)`` where ``columns`` preserves the
+        SELECT order, ``rows`` are dictionaries, and ``truncated`` indicates that
+        more rows were available but withheld. Used for the ad-hoc SQL and
+        prompt-analysis paths, where the result-set size is not known in advance.
+        The connection is a READ ONLY transaction with a bounded statement
+        timeout (see :meth:`_configure`), so this cannot mutate or overload the
+        database regardless of the query text.
+        """
+        pool = self._require_pool()
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(query, params)
+                rows = await cur.fetchmany(max_rows + 1)
+                truncated = len(rows) > max_rows
+                rows = rows[:max_rows]
+                columns = (
+                    [desc.name for desc in cur.description] if cur.description else []
+                )
+        return columns, rows, truncated
+
     def clamp_limit(self, limit: int | None, default: int = 25) -> int:
         """Clamp a user-supplied row limit into a safe range."""
         if limit is None:

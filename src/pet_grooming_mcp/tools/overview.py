@@ -54,8 +54,8 @@ async def get_user_statistics(
             (SELECT count(*) FROM users WHERE is_active)       AS active_users,
             (SELECT count(*) FROM users WHERE NOT is_active)   AS inactive_users,
             (SELECT count(*) FROM users
-              WHERE (%(after)s IS NULL OR created_at >= %(after)s::timestamptz)
-                AND (%(before)s IS NULL OR created_at < %(before)s::timestamptz)
+              WHERE (%(after)s::timestamptz IS NULL OR created_at >= %(after)s::timestamptz)
+                AND (%(before)s::timestamptz IS NULL OR created_at < %(before)s::timestamptz)
             )                                                  AS users_created_in_range,
             (SELECT round(coalesce(avg(pet_count), 0), 2) FROM (
                 SELECT count(p.id) AS pet_count

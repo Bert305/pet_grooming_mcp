@@ -42,10 +42,10 @@ async def search_pets(
         FROM pets p
         JOIN users u ON u.id = p.user_id
         LEFT JOIN breeds b ON b.id = p.breed_id
-        WHERE (%(pet_name)s IS NULL OR p.name ILIKE %(pet_name)s)
-          AND (%(owner_name)s IS NULL OR u.full_name ILIKE %(owner_name)s)
-          AND (%(species)s IS NULL OR lower(p.species::text) = lower(%(species)s))
-          AND (%(breed)s IS NULL OR b.name ILIKE %(breed)s)
+        WHERE (%(pet_name)s::text IS NULL OR p.name ILIKE %(pet_name)s)
+          AND (%(owner_name)s::text IS NULL OR u.full_name ILIKE %(owner_name)s)
+          AND (%(species)s::text IS NULL OR lower(p.species::text) = lower(%(species)s))
+          AND (%(breed)s::text IS NULL OR b.name ILIKE %(breed)s)
           AND (NOT %(active_only)s OR p.is_active)
         ORDER BY p.name
         LIMIT %(limit)s

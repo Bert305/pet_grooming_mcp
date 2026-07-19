@@ -109,8 +109,8 @@ async def get_service_revenue(
             WHERE pay.appointment_id = a.id
               AND lower(pay.status::text) = ANY(%(successful)s)
         )
-          AND (%(start)s IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
-          AND (%(end)s IS NULL OR a.scheduled_start < %(end)s::timestamptz)
+          AND (%(start)s::timestamptz IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
+          AND (%(end)s::timestamptz IS NULL OR a.scheduled_start < %(end)s::timestamptz)
         GROUP BY s.id
         ORDER BY revenue DESC, s.name
         """,

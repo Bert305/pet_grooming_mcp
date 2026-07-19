@@ -36,10 +36,10 @@ async def get_appointment_statistics(
     where = """
         FROM appointments a
         JOIN pets p ON p.id = a.pet_id
-        WHERE (%(start)s IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
-          AND (%(end)s IS NULL OR a.scheduled_start < %(end)s::timestamptz)
-          AND (%(status)s IS NULL OR lower(a.status::text) = lower(%(status)s))
-          AND (%(species)s IS NULL OR lower(p.species::text) = lower(%(species)s))
+        WHERE (%(start)s::timestamptz IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
+          AND (%(end)s::timestamptz IS NULL OR a.scheduled_start < %(end)s::timestamptz)
+          AND (%(status)s::text IS NULL OR lower(a.status::text) = lower(%(status)s))
+          AND (%(species)s::text IS NULL OR lower(p.species::text) = lower(%(species)s))
     """
 
     summary = await db.fetchrow(
@@ -89,8 +89,8 @@ async def get_appointments_by_status(
         """
         SELECT a.status::text AS status, count(*) AS count
         FROM appointments a
-        WHERE (%(start)s IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
-          AND (%(end)s IS NULL OR a.scheduled_start < %(end)s::timestamptz)
+        WHERE (%(start)s::timestamptz IS NULL OR a.scheduled_start >= %(start)s::timestamptz)
+          AND (%(end)s::timestamptz IS NULL OR a.scheduled_start < %(end)s::timestamptz)
         GROUP BY a.status
         ORDER BY count DESC
         """,
