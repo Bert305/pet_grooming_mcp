@@ -22,6 +22,9 @@ async def get_payment_statistics(
     Returns totals, realised revenue (successful statuses only), average
     successful payment amount, and breakdowns by status and method.
     """
+    # Shared params + FROM/WHERE reused by all three queries below so they cover
+    # the identical set of payments (bounded by the optional half-open date range
+    # on paid_at).
     params = {
         "start": start_date,
         "end": end_date,
@@ -33,6 +36,8 @@ async def get_payment_statistics(
           AND (%(end)s::timestamptz IS NULL OR p.paid_at < %(end)s::timestamptz)
     """
 
+    # Overall totals. FILTER restricts revenue and the average to successful
+    # statuses only, while total_payments counts every payment in range.
     summary = await db.fetchrow(
         f"""
         SELECT
@@ -48,6 +53,7 @@ async def get_payment_statistics(
         params,
     )
 
+    # Count and amount grouped by payment status (paid/refunded/failed/...).
     by_status = await db.fetch(
         f"""
         SELECT p.status::text AS status, count(*) AS count,
@@ -59,6 +65,7 @@ async def get_payment_statistics(
         params,
     )
 
+    # Same shape, but grouped by payment method (card/cash/...).
     by_method = await db.fetch(
         f"""
         SELECT p.method::text AS method, count(*) AS count,
@@ -70,6 +77,7 @@ async def get_payment_statistics(
         params,
     )
 
+    # Assemble the summary row with both breakdowns and echo the applied filters.
     result = dict(summary or {})
     result["by_status"] = by_status
     result["by_method"] = by_method
@@ -84,6 +92,9 @@ async def get_revenue_summary(
     group_by: str = "month",
 ) -> dict[str, Any]:
     """Return a realised-revenue time series bucketed by day/week/month/year."""
+    # Validate group_by against the allow-list and translate it to a date_trunc
+    # unit. This is what makes it safe to pass `unit` as a bound parameter — an
+    # unrecognised value is rejected up front rather than reaching the query.
     unit = _TRUNC_UNITS.get(group_by.lower().strip())
     if unit is None:
         return {
@@ -91,6 +102,10 @@ async def get_revenue_summary(
             f"Use one of: {', '.join(_TRUNC_UNITS)}."
         }
 
+    # Bucket successful, actually-paid payments by the chosen period and sum
+    # revenue per bucket. date_trunc appears in both SELECT and GROUP BY so each
+    # row is one period; ORDER BY period yields a chronological series. The
+    # paid_at IS NOT NULL guard excludes recorded-but-unpaid rows.
     rows = await db.fetch(
         """
         SELECT
@@ -112,6 +127,7 @@ async def get_revenue_summary(
             "end": end_date,
         },
     )
+    # Grand total across all buckets, returned next to the series.
     total = sum(r["revenue"] for r in rows)
     return jsonable(
         {

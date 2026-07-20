@@ -11,6 +11,10 @@ from ..models import jsonable
 
 async def get_business_overview(db: Database) -> dict[str, Any]:
     """Return headline counts and total realised revenue for the business."""
+    # Each headline figure is an independent scalar subquery in the SELECT list, so
+    # the whole dashboard comes back as a single row from one round-trip. Status
+    # comparisons are lower()'d for case-insensitivity, and cancelled/successful use
+    # the shared status lists; revenue is coalesced to 0 if there are no payments.
     row = await db.fetchrow(
         """
         SELECT
@@ -47,6 +51,10 @@ async def get_user_statistics(
     ``created_after`` / ``created_before`` are optional ISO dates (YYYY-MM-DD)
     that bound the "users created in range" figure.
     """
+    # Like get_business_overview, each metric is its own scalar subquery in one
+    # row. users_created_in_range applies the optional half-open date bounds.
+    # avg_pets_per_user first counts pets per user in a derived table (LEFT JOIN so
+    # users with zero pets count as 0), then averages those counts.
     row = await db.fetchrow(
         """
         SELECT
@@ -74,6 +82,7 @@ async def get_user_statistics(
 
 async def get_pet_statistics(db: Database) -> dict[str, Any]:
     """Return pet counts broken down by species, breed, and size category."""
+    # Headline totals: all pets and the active subset.
     totals = await db.fetchrow(
         """
         SELECT
@@ -83,6 +92,7 @@ async def get_pet_statistics(db: Database) -> dict[str, Any]:
         """
     )
 
+    # Distribution across species.
     by_species = await db.fetch(
         """
         SELECT species::text AS species, count(*) AS count
@@ -92,6 +102,8 @@ async def get_pet_statistics(db: Database) -> dict[str, Any]:
         """
     )
 
+    # Top 25 breeds. INNER JOIN means pets with no breed assigned are excluded here
+    # (they still appear under "unknown" in the size breakdown below).
     by_breed = await db.fetch(
         """
         SELECT b.name AS breed, b.species::text AS species, count(p.id) AS count
@@ -103,6 +115,8 @@ async def get_pet_statistics(db: Database) -> dict[str, Any]:
         """
     )
 
+    # Distribution by breed size. LEFT JOIN keeps breed-less pets, and coalesce
+    # buckets those (plus any breed with no size set) under 'unknown'.
     by_size = await db.fetch(
         """
         SELECT coalesce(b.size_category, 'unknown') AS size_category, count(p.id) AS count

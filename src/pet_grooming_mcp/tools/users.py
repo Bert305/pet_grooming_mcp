@@ -31,7 +31,11 @@ async def search_users(
     pet count per customer. Set ``active_only=False`` to include deactivated
     accounts.
     """
+    # Clamp the caller's limit to the server maximum to bound the result size.
     limit = db.clamp_limit(limit)
+    # Each WHERE line is a "param IS NULL OR match" pair, so an unset filter is a
+    # no-op; ILIKE gives case-insensitive substring matching (values are wrapped
+    # in %...% by _like()). The correlated subquery counts each user's pets inline.
     rows = await db.fetch(
         """
         SELECT
@@ -51,6 +55,8 @@ async def search_users(
         ORDER BY u.full_name
         LIMIT %(limit)s
         """,
+        # Params are bound by the driver (no string formatting) to prevent SQL
+        # injection; _like() adds wildcards or returns None to disable a filter.
         {
             "name": _like(name),
             "email": _like(email),
@@ -59,11 +65,13 @@ async def search_users(
             "limit": limit,
         },
     )
+    # jsonable() makes DB types (timestamps, etc.) JSON-serialisable for the client.
     return jsonable({"count": len(rows), "limit": limit, "users": rows})
 
 
 async def get_user_details(db: Database, user_id: int) -> dict[str, Any]:
     """Return a full customer profile with pets, appointment count, and spend."""
+    # Step 1: load the core user record and confirm the id exists.
     user = await db.fetchrow(
         """
         SELECT id, full_name, email, phone, address, preferences,
@@ -76,6 +84,7 @@ async def get_user_details(db: Database, user_id: int) -> dict[str, Any]:
     if user is None:
         return {"error": f"No user found with id {user_id}"}
 
+    # Step 2: list all of this customer's pets (LEFT JOIN keeps breed-less pets).
     pets = await db.fetch(
         """
         SELECT p.id, p.name, p.species::text AS species, b.name AS breed,
@@ -88,6 +97,11 @@ async def get_user_details(db: Database, user_id: int) -> dict[str, Any]:
         {"user_id": user_id},
     )
 
+    # Step 3: aggregate lifetime activity across the customer's pets. Walking
+    # pets -> appointments -> payments with LEFT JOINs means customers with no
+    # history still return a row of zeros. count(DISTINCT a.id) avoids inflating
+    # the appointment count when an appointment has several payment rows, and the
+    # FILTER restricts the spend sum to successfully-paid statuses only.
     stats = await db.fetchrow(
         """
         SELECT
@@ -103,6 +117,8 @@ async def get_user_details(db: Database, user_id: int) -> dict[str, Any]:
         {"user_id": user_id, "successful": list(SUCCESSFUL_PAYMENT_STATUSES)},
     )
 
+    # Merge the three queries into one profile object. `stats or {}` guards against
+    # a None row so the .get() fallbacks apply.
     return jsonable(
         {
             **user,
@@ -118,7 +134,12 @@ async def get_top_customers(
 ) -> dict[str, Any]:
     """Rank customers by lifetime ``spend`` (default) or ``appointments``."""
     limit = db.clamp_limit(limit, default=10)
+    # Choose the ORDER BY column from a fixed allow-list (never the raw `by` value)
+    # so interpolating it into the f-string below can't cause SQL injection.
     order_column = "total_spend" if by != "appointments" else "total_appointments"
+    # Same pets -> appointments -> payments roll-up as get_user_details, but for
+    # every user at once: GROUP BY user, then order by the chosen metric. The
+    # spend sum is filtered to successful payments and coalesced to 0.
     rows = await db.fetch(
         f"""
         SELECT

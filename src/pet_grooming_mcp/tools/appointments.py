@@ -26,6 +26,7 @@ async def get_appointment_statistics(
     Returns total appointments in scope, a status breakdown, completed and
     cancelled counts, and the average scheduled length in minutes.
     """
+    # One shared parameter dict feeds both queries below.
     params = {
         "start": start_date,
         "end": end_date,
@@ -33,6 +34,10 @@ async def get_appointment_statistics(
         "species": species.strip() if species else None,
         "cancelled": list(CANCELLED_STATUSES),
     }
+    # The FROM/WHERE clause is built once and reused by both the summary and the
+    # by-status query so they stay in sync over the exact same filtered set. Each
+    # filter is a "param IS NULL OR match" pair (an unset filter is a no-op); the
+    # date bounds are half-open [start, end) so adjacent ranges don't double-count.
     where = """
         FROM appointments a
         JOIN pets p ON p.id = a.pet_id
@@ -42,6 +47,9 @@ async def get_appointment_statistics(
           AND (%(species)s::text IS NULL OR lower(p.species::text) = lower(%(species)s))
     """
 
+    # Headline metrics in a single pass: total rows, plus conditional counts via
+    # FILTER for completed/cancelled, and the average scheduled duration converted
+    # from seconds (EXTRACT EPOCH of end-start) to minutes, rounded to 1 decimal.
     summary = await db.fetchrow(
         f"""
         SELECT
@@ -58,6 +66,7 @@ async def get_appointment_statistics(
         params,
     )
 
+    # Same filtered set, broken down into a per-status count for a distribution.
     by_status = await db.fetch(
         f"""
         SELECT a.status::text AS status, count(*) AS count
@@ -68,6 +77,8 @@ async def get_appointment_statistics(
         params,
     )
 
+    # Combine the summary row with the breakdown, and echo back the filters that
+    # were applied so the caller can see the scope of the numbers.
     result = dict(summary or {})
     result["by_status"] = by_status
     result["filters"] = {
@@ -85,6 +96,8 @@ async def get_appointments_by_status(
     end_date: str | None = None,
 ) -> dict[str, Any]:
     """Return a simple count of appointments grouped by status."""
+    # Lightweight status distribution with only the optional half-open date bounds
+    # (no pet join or duration maths, unlike get_appointment_statistics).
     rows = await db.fetch(
         """
         SELECT a.status::text AS status, count(*) AS count
@@ -110,7 +123,12 @@ async def get_upcoming_appointments(
     special instructions.
     """
     limit = db.clamp_limit(limit)
+    # Clamp the look-ahead window to a sane 1..365 days regardless of input.
     days_ahead = max(1, min(int(days_ahead), 365))
+    # Join each appointment to its pet and owner (INNER JOINs, since every
+    # appointment must have both), and LEFT JOIN through appointment_services to
+    # gather the booked service names. The window is [now, now + N days); the
+    # `<> ALL(cancelled)` clause drops any cancelled statuses.
     rows = await db.fetch(
         """
         SELECT
@@ -123,6 +141,8 @@ async def get_upcoming_appointments(
             p.species::text AS species,
             u.full_name AS owner_name,
             u.phone AS owner_phone,
+            -- One comma-separated, alphabetised service list per appointment;
+            -- coalesce keeps appointments with no services as an empty string.
             coalesce(string_agg(s.name, ', ' ORDER BY s.name), '') AS services
         FROM appointments a
         JOIN pets p ON p.id = a.pet_id
@@ -132,6 +152,8 @@ async def get_upcoming_appointments(
         WHERE a.scheduled_start >= now()
           AND a.scheduled_start < now() + make_interval(days => %(days)s)
           AND lower(a.status::text) <> ALL(%(cancelled)s)
+        -- Group by the appointment (plus the selected non-aggregated columns) so
+        -- string_agg folds the service rows; soonest appointments come first.
         GROUP BY a.id, p.name, p.species, u.full_name, u.phone
         ORDER BY a.scheduled_start
         LIMIT %(limit)s

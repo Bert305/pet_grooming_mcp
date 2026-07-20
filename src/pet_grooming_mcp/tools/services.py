@@ -11,6 +11,7 @@ from ..models import jsonable
 
 async def get_service_statistics(db: Database) -> dict[str, Any]:
     """Return the service catalogue with pricing and lifetime booking counts."""
+    # Headline counts: total services and how many are currently active.
     totals = await db.fetchrow(
         """
         SELECT
@@ -20,6 +21,7 @@ async def get_service_statistics(db: Database) -> dict[str, Any]:
         """
     )
 
+    # How the catalogue splits across species (dog/cat/...).
     by_species = await db.fetch(
         """
         SELECT species::text AS species, count(*) AS count
@@ -29,6 +31,9 @@ async def get_service_statistics(db: Database) -> dict[str, Any]:
         """
     )
 
+    # Full catalogue with a lifetime booking count per service. LEFT JOIN to the
+    # link table keeps never-booked services in the list; count(aps.id) counts
+    # only matched link rows, so those services correctly show 0.
     services = await db.fetch(
         """
         SELECT
@@ -61,7 +66,11 @@ async def get_popular_services(
 ) -> dict[str, Any]:
     """Rank services by number of bookings over the last ``days`` days."""
     limit = db.clamp_limit(limit, default=10)
+    # Clamp the look-back window to 1..3650 days (~10 years max).
     days = max(1, min(int(days), 3650))
+    # Start from the link table and INNER JOIN to appointments + services, so only
+    # services actually booked in the window appear (unbooked ones are excluded by
+    # design here). Counting bookings and taking the top `limit` gives the ranking.
     rows = await db.fetch(
         """
         SELECT
@@ -93,6 +102,11 @@ async def get_service_revenue(
     otherwise the service's ``base_price``. Only bookings tied to a successfully
     paid appointment are counted.
     """
+    # Per-service revenue = sum of each booking's effective price. The inner
+    # coalesce prefers the line-item price_override and falls back to base_price;
+    # the outer coalesce turns a no-rows sum into 0. The EXISTS subquery keeps only
+    # bookings whose appointment has at least one successful payment, and the two
+    # optional half-open date bounds scope by scheduled_start.
     rows = await db.fetch(
         """
         SELECT
@@ -120,6 +134,7 @@ async def get_service_revenue(
             "end": end_date,
         },
     )
+    # Sum the per-service revenues in Python for the grand total returned alongside.
     total = sum(r["revenue"] for r in rows)
     return jsonable(
         {
